@@ -32,11 +32,20 @@ class AutoTradeService:
         self.scheduler.add_job(self.run_scan, "interval", seconds=120, id="autotrade_scan_job")
         # Monitor active open positions every 2 seconds for immediate SL/Target exit
         self.scheduler.add_job(self.run_fast_monitor, "interval", seconds=2, id="autotrade_monitor_job")
+        # Explicit garbage collection job every 60 seconds to release Python heap memory
+        self.scheduler.add_job(self.run_gc, "interval", seconds=60, id="autotrade_gc_job")
 
         # Start scheduler on init
         if not self.scheduler.running:
             self.scheduler.start()
-            logger.info("AutoTrade Scheduler started (Scan: 120s, Monitor: 2s).")
+            logger.info("AutoTrade Scheduler started (Scan: 120s, Monitor: 2s, GC: 60s).")
+
+    def run_gc(self) -> None:
+        """Explicitly run garbage collection to free unused memory on Render container."""
+        import gc
+        logger.info("AutoTrade: Running periodic garbage collection...")
+        collected = gc.collect()
+        logger.info(f"AutoTrade: Garbage collection finished. Cleaned {collected} unreachable objects.")
 
     def run_fast_monitor(self) -> None:
         """Runs every 2 seconds to check and manage active trades (no LLM tokens used)."""
