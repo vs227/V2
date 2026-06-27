@@ -550,16 +550,19 @@ function App() {
 
   // Refresh All Data Elements
   const refreshAll = async () => {
-    await checkConnection()
-    await fetchMarketData()
-    await fetchTradeHistory()
-    await fetchAnalytics()
-    await fetchAutotradeStatus()
-    await fetchSettings()
-    await fetchLastDecision()
+    const promises = [
+      checkConnection(),
+      fetchMarketData(),
+      fetchTradeHistory(),
+      fetchAnalytics(),
+      fetchAutotradeStatus(),
+      fetchSettings(),
+      fetchLastDecision()
+    ]
     if (activeTab === 'charts') {
-      await fetchOptionChain(optionChainSymbol)
+      promises.push(fetchOptionChain(optionChainSymbol))
     }
+    await Promise.all(promises)
   }
 
   // Refresh option chain when active tab or symbol changes

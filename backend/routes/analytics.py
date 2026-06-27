@@ -9,7 +9,7 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 
 @router.get("", response_model=APIResponse)
-async def get_analytics():
+def get_analytics():
     try:
         trades = get_all_trades(limit=500)
         today = datetime.now().strftime("%Y-%m-%d")
@@ -49,7 +49,7 @@ async def get_analytics():
 
 
 @router.get("/daily", response_model=APIResponse)
-async def get_daily_trades(date: str = Query(None, description="Date YYYY-MM-DD")):
+def get_daily_trades(date: str = Query(None, description="Date YYYY-MM-DD")):
     try:
         target_date = date or datetime.now().strftime("%Y-%m-%d")
         trades = get_trades_by_date(target_date)

@@ -60,7 +60,7 @@ app.include_router(autotrade.router)
 
 
 @app.post("/login", response_model=APIResponse, tags=["Authentication"])
-async def login(request: LoginRequest):
+def login(request: LoginRequest):
     try:
         kotak = get_kotak_service()
         res = kotak.login(totp=request.totp)
@@ -74,7 +74,7 @@ async def login(request: LoginRequest):
 
 
 @app.get("/health", tags=["Health"])
-async def health():
+def health():
     return {"status": "healthy"}
 
 

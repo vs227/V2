@@ -12,7 +12,7 @@ trade_service = TradeService(kotak)
 
 
 @router.post("/buy", response_model=APIResponse)
-async def buy(request: BuyRequest):
+def buy(request: BuyRequest):
     try:
         logger.info(f"Buy request: {request.model_dump()}")
         result = trade_service.buy(request)
@@ -23,7 +23,7 @@ async def buy(request: BuyRequest):
 
 
 @router.post("/sell", response_model=APIResponse)
-async def sell(request: SellRequest):
+def sell(request: SellRequest):
     try:
         logger.info(f"Sell request: {request.model_dump()}")
         result = trade_service.sell(request)
@@ -34,7 +34,7 @@ async def sell(request: SellRequest):
 
 
 @router.post("/exit", response_model=APIResponse)
-async def exit_trade(request: ExitRequest):
+def exit_trade(request: ExitRequest):
     try:
         logger.info(f"Exit request: trade_id={request.trade_id}")
         result = trade_service.exit_trade(request)
@@ -45,7 +45,7 @@ async def exit_trade(request: ExitRequest):
 
 
 @router.post("/modify-sl", response_model=APIResponse)
-async def modify_sl(request: ModifySLRequest):
+def modify_sl(request: ModifySLRequest):
     try:
         result = trade_service.modify_stoploss(request.order_id, request.new_stoploss)
         return APIResponse(success=True, message="Stoploss modified", data=result)
@@ -55,7 +55,7 @@ async def modify_sl(request: ModifySLRequest):
 
 
 @router.post("/cancel", response_model=APIResponse)
-async def cancel(request: CancelRequest):
+def cancel(request: CancelRequest):
     try:
         result = trade_service.cancel_order(request.order_id)
         return APIResponse(success=True, message="Order cancelled", data=result)
@@ -65,7 +65,7 @@ async def cancel(request: CancelRequest):
 
 
 @router.get("/orders", response_model=APIResponse)
-async def get_orders():
+def get_orders():
     try:
         data = trade_service.get_orders()
         return APIResponse(success=True, message="Orders fetched", data=data)
@@ -75,7 +75,7 @@ async def get_orders():
 
 
 @router.get("/positions", response_model=APIResponse)
-async def get_positions():
+def get_positions():
     try:
         data = trade_service.get_positions()
         return APIResponse(success=True, message="Positions fetched", data=data)
@@ -85,7 +85,7 @@ async def get_positions():
 
 
 @router.get("/history", response_model=APIResponse)
-async def get_history():
+def get_history():
     try:
         data = trade_service.get_history()
         return APIResponse(success=True, message="Trade history fetched", data=data)

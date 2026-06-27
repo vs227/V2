@@ -14,7 +14,7 @@ ai = LLMService()
 
 
 @router.get("", response_model=APIResponse)
-async def get_market_overview():
+def get_market_overview():
     try:
         data = market.get_market_overview()
         return APIResponse(success=True, message="Market data fetched", data=data)
@@ -24,7 +24,7 @@ async def get_market_overview():
 
 
 @router.get("/nifty", response_model=APIResponse)
-async def get_nifty():
+def get_nifty():
     try:
         data = market.get_nifty_price()
         return APIResponse(success=True, message="NIFTY data fetched", data=data.model_dump(mode="json"))
@@ -34,7 +34,7 @@ async def get_nifty():
 
 
 @router.get("/banknifty", response_model=APIResponse)
-async def get_banknifty():
+def get_banknifty():
     try:
         data = market.get_banknifty_price()
         return APIResponse(success=True, message="BANKNIFTY data fetched", data=data.model_dump(mode="json"))
@@ -44,7 +44,7 @@ async def get_banknifty():
 
 
 @router.get("/optionchain", response_model=APIResponse)
-async def get_option_chain(symbol: str = Query("NIFTY", description="NIFTY or BANKNIFTY")):
+def get_option_chain(symbol: str = Query("NIFTY", description="NIFTY or BANKNIFTY")):
     try:
         data = market.get_option_chain(symbol)
         return APIResponse(success=True, message=f"{symbol} option chain fetched", data=data)
@@ -54,7 +54,7 @@ async def get_option_chain(symbol: str = Query("NIFTY", description="NIFTY or BA
 
 
 @router.get("/vix", response_model=APIResponse)
-async def get_vix():
+def get_vix():
     try:
         data = market.get_india_vix()
         return APIResponse(success=True, message="India VIX fetched", data=data)
@@ -64,7 +64,7 @@ async def get_vix():
 
 
 @router.get("/analysis", response_model=APIResponse)
-async def get_analysis(symbol: str = Query("NIFTY", description="NIFTY or BANKNIFTY")):
+def get_analysis(symbol: str = Query("NIFTY", description="NIFTY or BANKNIFTY")):
     try:
         nifty = market.get_nifty_ohlc()
         banknifty = market.get_banknifty_ohlc()

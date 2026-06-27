@@ -20,7 +20,7 @@ trade_service = TradeService(kotak)
 autotrade = get_autotrade_service()
 
 @router.post("", response_model=APIResponse)
-async def process_chat(request: ChatRequest):
+def process_chat(request: ChatRequest):
     msg = request.message.strip().lower()
     
     # 1. TOTP Login intent

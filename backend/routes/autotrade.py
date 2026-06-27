@@ -8,7 +8,7 @@ logger = setup_logger("autotrade")
 
 
 @router.post("/enable", response_model=APIResponse)
-async def enable_autotrade():
+def enable_autotrade():
     try:
         autotrade = get_autotrade_service()
         autotrade.enable()
@@ -23,7 +23,7 @@ async def enable_autotrade():
 
 
 @router.post("/disable", response_model=APIResponse)
-async def disable_autotrade():
+def disable_autotrade():
     try:
         autotrade = get_autotrade_service()
         autotrade.disable()
@@ -38,7 +38,7 @@ async def disable_autotrade():
 
 
 @router.get("/status", response_model=APIResponse)
-async def get_autotrade_status():
+def get_autotrade_status():
     try:
         autotrade = get_autotrade_service()
         from datetime import datetime
@@ -62,7 +62,7 @@ async def get_autotrade_status():
 
 
 @router.get("/settings", response_model=APIResponse)
-async def get_settings_endpoint():
+def get_settings_endpoint():
     try:
         from config import get_settings
         settings = get_settings()
@@ -84,7 +84,7 @@ async def get_settings_endpoint():
 
 
 @router.post("/settings", response_model=APIResponse)
-async def update_settings_endpoint(payload: dict):
+def update_settings_endpoint(payload: dict):
     try:
         from config import get_settings
         settings = get_settings()
@@ -122,7 +122,7 @@ async def update_settings_endpoint(payload: dict):
 
 
 @router.get("/last-decision", response_model=APIResponse)
-async def get_last_decision():
+def get_last_decision():
     try:
         autotrade = get_autotrade_service()
         return APIResponse(

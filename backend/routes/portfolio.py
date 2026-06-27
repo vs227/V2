@@ -10,7 +10,7 @@ kotak = get_kotak_service()
 
 
 @router.get("", response_model=APIResponse)
-async def get_portfolio():
+def get_portfolio():
     if not kotak.is_authenticated:
         return APIResponse(success=False, message="Not authenticated with Kotak Neo")
     try:
@@ -30,7 +30,7 @@ async def get_portfolio():
 
 
 @router.get("/positions", response_model=APIResponse)
-async def get_positions():
+def get_positions():
     if not kotak.is_authenticated:
         return APIResponse(success=False, message="Not authenticated with Kotak Neo")
     try:
@@ -42,7 +42,7 @@ async def get_positions():
 
 
 @router.get("/holdings", response_model=APIResponse)
-async def get_holdings():
+def get_holdings():
     if not kotak.is_authenticated:
         return APIResponse(success=False, message="Not authenticated with Kotak Neo")
     try:
@@ -54,7 +54,7 @@ async def get_holdings():
 
 
 @router.get("/limits", response_model=APIResponse)
-async def get_limits():
+def get_limits():
     if not kotak.is_authenticated:
         return APIResponse(success=False, message="Not authenticated with Kotak Neo")
     try:
