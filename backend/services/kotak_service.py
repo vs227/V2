@@ -88,7 +88,9 @@ class KotakService:
 
     def get_quotes(self, instrument_tokens: list[dict], quote_type: str = "ltp") -> dict:
         logger.info(f"Fetching quotes: {instrument_tokens}, type={quote_type}")
-        if self.client and self.is_authenticated and self._real_authenticated and not self.is_paper:
+        
+        # 1. Try real API call if in live mode and logged in
+        if self.client and self._real_authenticated and not self.is_paper:
             try:
                 response = self.client.quotes(
                     instrument_tokens=instrument_tokens,
@@ -98,8 +100,8 @@ class KotakService:
                 return response
             except Exception as e:
                 logger.error(f"Failed to fetch quotes from Kotak Neo: {e}. Falling back to mocks.")
-
-        # Simulated fallback quotes if client is offline or unauthenticated
+                
+        # 2. Fallback mock quotes generator
         data = []
         for token_info in instrument_tokens:
             token = str(token_info.get("instrument_token", ""))
@@ -136,7 +138,6 @@ class KotakService:
                         strike_val = float(strike_str)
                         spot_val = 24350.0 if sym == "NIFTY" else 52450.0
                         
-                        # Intrinsic + Time value pricing
                         if ot == "CE":
                             intrinsic = max(0.0, spot_val - strike_val)
                         else:
@@ -146,7 +147,6 @@ class KotakService:
                         time_value = max(10.0, 150.0 - (distance * 0.1))
                         base_premium = intrinsic + time_value + random.uniform(-5, 5)
                         if sym == "NIFTY":
-                            # Nifty premiums are typically lower than BankNifty
                             base_premium = base_premium * 0.5
                 except Exception:
                     if "NIFTY" in token:
@@ -154,7 +154,6 @@ class KotakService:
                     elif "BANKNIFTY" in token:
                         base_premium = 280.0 + random.uniform(-30, 30)
                 
-                # Mock volume based on ITM/OTM distance (near-the-money has higher volume)
                 vol_base = 50000
                 try:
                     parts = token.split("_")
@@ -186,7 +185,7 @@ class KotakService:
     ) -> dict:
         logger.info(f"Searching scrip: {symbol} on {exchange_segment} (Paper={self.is_paper})")
         
-        # Check cache first for real calls
+        # 1. Check cache first for real calls
         import time
         cache_key = (exchange_segment, symbol, expiry, option_type, strike_price)
         now = time.time()
@@ -196,7 +195,8 @@ class KotakService:
                 logger.info(f"Returning cached scrip search for {symbol}")
                 return cached_res
                 
-        if self.client and self.is_authenticated and self._real_authenticated and not self.is_paper:
+        # 2. Try real API call if in live mode and logged in
+        if self.client and self._real_authenticated and not self.is_paper:
             try:
                 response = self.client.search_scrip(
                     exchange_segment=exchange_segment,
@@ -210,39 +210,9 @@ class KotakService:
                 return response
             except Exception as e:
                 logger.error(f"Scrip search failed: {e}. Falling back to mocks.")
-
-        # Simulated fallback scrip search
-        if not self.client or not self.is_authenticated or not self._real_authenticated or self.is_paper:
-            strikes = []
-            if symbol == "NIFTY":
-                atm = 24350
-                step = 50
-            elif symbol == "BANKNIFTY":
-                atm = 52400
-                step = 100
-            else:
-                atm = 1000
-                step = 10
-            
-            contracts = []
-            for i in range(-5, 6):
-                strike = atm + (i * step)
-                for ot in ["CE", "PE"]:
-                    ts = f"{symbol}26JUL{strike}{ot}"
-                    contracts.append({
-                        "pTrdSym": ts,
-                        "tradingSymbol": ts,
-                        "pInstToken": f"{symbol}_{strike}_{ot}",
-                        "instrumentToken": f"{symbol}_{strike}_{ot}",
-                        "pExpiryDate": "2026-07-02",
-                        "expiry": "2026-07-02",
-                        "strike": float(strike),
-                        "option_type": ot,
-                        "call_oi": 1000000 + i * 50000 if ot == "CE" else 900000 - i * 50000,
-                        "put_oi": 900000 + i * 50000 if ot == "PE" else 1100000 - i * 50000,
-                    })
-            return {"data": contracts}
-        else:
+                
+        # 3. Fallback mock scrip search
+        if strike_price:
             opt_key = option_type if option_type else "CE"
             exp_str = expiry if expiry else "2026-07-02"
             tradingsymbol = f"{symbol}{exp_str.replace('-', '')}{strike_price}{opt_key}"
@@ -256,25 +226,41 @@ class KotakService:
                         "instrumentToken": token,
                         "pExpiryDate": exp_str,
                         "expiry": exp_str,
-                        "strike": strike_price,
+                        "strike": float(strike_price),
                         "option_type": opt_key,
                     }
                 ]
             }
-
-        try:
-            response = self.client.search_scrip(
-                exchange_segment=exchange_segment,
-                symbol=symbol,
-                expiry=expiry,
-                option_type=option_type,
-                strike_price=strike_price,
-            )
-            logger.info(f"Scrip search complete: {symbol}")
-            return response
-        except Exception as e:
-            logger.error(f"Scrip search failed: {e}")
-            raise
+            
+        strikes = []
+        if symbol == "NIFTY":
+            atm = 24350
+            step = 50
+        elif symbol == "BANKNIFTY":
+            atm = 52400
+            step = 100
+        else:
+            atm = 1000
+            step = 10
+            
+        contracts = []
+        for i in range(-5, 6):
+            strike = atm + (i * step)
+            for ot in ["CE", "PE"]:
+                ts = f"{symbol}26JUL{strike}{ot}"
+                contracts.append({
+                    "pTrdSym": ts,
+                    "tradingSymbol": ts,
+                    "pInstToken": f"{symbol}_{strike}_{ot}",
+                    "instrumentToken": f"{symbol}_{strike}_{ot}",
+                    "pExpiryDate": "2026-07-02",
+                    "expiry": "2026-07-02",
+                    "strike": float(strike),
+                    "option_type": ot,
+                    "call_oi": 1000000 + i * 50000 if ot == "CE" else 900000 - i * 50000,
+                    "put_oi": 900000 + i * 50000 if ot == "PE" else 1100000 - i * 50000,
+                })
+        return {"data": contracts}
 
     def get_scrip_master(self, exchange_segment: str = "") -> dict:
         logger.info(f"Fetching scrip master: {exchange_segment or 'ALL'}")
