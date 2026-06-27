@@ -25,6 +25,4 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
-    if settings.supabase_db_url and ".supabase.co:5432" in settings.supabase_db_url:
-        settings.supabase_db_url = settings.supabase_db_url.replace(".supabase.co:5432", ".supabase.co:6543")
     return settings
