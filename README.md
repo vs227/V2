@@ -1,9 +1,7 @@
-# AI Options Trader
-
-A modern AI-powered options trading system for Kotak Neo, with a React frontend and FastAPI backend.
+#A modern AI-powered analyse and strike system, with a React frontend and FastAPI backend.
 
 ## Project Structure
-- `backend/`: FastAPI backend with Groq-powered AI (Llama 3.1 70B), Supabase PostgreSQL, and Kotak Neo integration
+- `backend/`: FastAPI backend with Groq-powered AI (Llama 3.1 70B), Supabase PostgreSQL, and Broker integration
 - `frontend/`: React + Vite frontend (deployable on Vercel)
 
 ## Features
