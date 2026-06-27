@@ -7,6 +7,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(__file__))
 
 from fastapi import FastAPI, Request, Query
+from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
@@ -58,6 +59,11 @@ async def log_requests(request: Request, call_next):
     duration = round((time.time() - start) * 1000, 2)
     logger.info(f"<- {request.method} {request.url.path} [{response.status_code}] {duration}ms")
     return response
+
+
+@app.get("/", include_in_schema=False)
+def root_redirect():
+    return RedirectResponse(url="/docs")
 
 
 # --- Authentication Endpoint ---
