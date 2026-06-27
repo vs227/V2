@@ -198,16 +198,25 @@ class KotakService:
         # 2. Try real API call if logged in
         if self.client and self._real_authenticated:
             try:
+                api_expiry = expiry if expiry else None
+                api_option_type = option_type if option_type else None
+                api_strike_price = strike_price if strike_price else None
+                
                 response = self.client.search_scrip(
                     exchange_segment=exchange_segment,
                     symbol=symbol,
-                    expiry=expiry,
-                    option_type=option_type,
-                    strike_price=strike_price,
+                    expiry=api_expiry,
+                    option_type=api_option_type,
+                    strike_price=api_strike_price,
                 )
-                logger.info(f"Scrip search complete: {symbol} (Real data)")
-                self._scrip_cache[cache_key] = (now, response)
-                return response
+                
+                # Verify that response is valid and does not contain API error fields
+                if isinstance(response, dict) and ("data" in response or "scrip" in response) and not ("Error" in response or "Error Message" in response):
+                    logger.info(f"Scrip search complete: {symbol} (Real data)")
+                    self._scrip_cache[cache_key] = (now, response)
+                    return response
+                else:
+                    logger.warning(f"Real scrip search returned error or empty response: {response}. Falling back to mocks.")
             except Exception as e:
                 logger.error(f"Scrip search failed: {e}. Falling back to mocks.")
                 
@@ -614,11 +623,11 @@ class KotakService:
             if not valid_contracts:
                 return {"data": [], "spot_price": spot_price}
 
-            strikes = list(set(float(c.get("strike")) for c in valid_contracts))
+            strikes = list(set(float(c.get("strike", c.get("pStrikePrice", 0))) for c in valid_contracts))
             strikes.sort(key=lambda x: abs(x - spot_price))
             selected_strikes = sorted(strikes[:10])
 
-            chain_contracts = [c for c in valid_contracts if float(c.get("strike")) in selected_strikes]
+            chain_contracts = [c for c in valid_contracts if float(c.get("strike", c.get("pStrikePrice", 0))) in selected_strikes]
 
             tokens = []
             for c in chain_contracts:
@@ -644,8 +653,8 @@ class KotakService:
             strike_map = {s: {"strike": s, "CE": None, "PE": None} for s in selected_strikes}
 
             for c in chain_contracts:
-                strike = float(c.get("strike"))
-                opt_type = c.get("option_type")
+                strike = float(c.get("strike", c.get("pStrikePrice", 0)))
+                opt_type = c.get("option_type", c.get("pOptionType", ""))
                 token = c.get("instrumentToken", c.get("pInstToken", ""))
                 
                 quote = quotes_data.get(str(token), {})
