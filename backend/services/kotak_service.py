@@ -1,7 +1,9 @@
 from config import get_settings
 from logger import setup_logger
 from typing import Optional
+from datetime import datetime
 import random
+from schemas import MarketData
 
 logger = setup_logger("kotak")
 
@@ -12,6 +14,11 @@ except ImportError:
     HAS_SDK = False
     logger.warning("neo_api_client SDK not found. Defaulting to Paper Trading Mode.")
 
+# Token constants for Indian indices
+NIFTY_TOKEN = {"instrument_token": "26000", "exchange_segment": "nse_cm"}
+BANKNIFTY_TOKEN = {"instrument_token": "26009", "exchange_segment": "nse_cm"}
+INDIA_VIX_TOKEN = {"instrument_token": "26017", "exchange_segment": "nse_cm"}
+
 
 class KotakService:
     def __init__(self) -> None:
@@ -20,7 +27,6 @@ class KotakService:
         self._real_authenticated = False
         self._scrip_cache = {}
 
-        # Always initialize self.client if SDK is present to fetch real market data/quotes
         if HAS_SDK:
             try:
                 self.client = NeoAPI(
@@ -41,6 +47,10 @@ class KotakService:
     def is_paper(self) -> bool:
         settings = get_settings()
         return settings.paper_trading or not HAS_SDK
+
+    @property
+    def is_authenticated(self) -> bool:
+        return self._authenticated or self._real_authenticated
 
     def login(self, totp: str) -> dict:
         if self.client:
@@ -80,10 +90,6 @@ class KotakService:
                 "validate": {"status": "success", "message": "MPIN Validated in Simulation mode"}
             }
 
-    @property
-    def is_authenticated(self) -> bool:
-        return self._authenticated or self._real_authenticated
-
     def get_quotes(self, instrument_tokens: list[dict], quote_type: str = "ltp") -> dict:
         logger.info(f"Fetching quotes: {instrument_tokens}, type={quote_type}")
         
@@ -103,7 +109,6 @@ class KotakService:
         data = []
         for token_info in instrument_tokens:
             token = str(token_info.get("instrument_token", ""))
-            # Mock Nifty
             if token == "26000":
                 data.append({
                     "instrument_token": token,
@@ -111,7 +116,6 @@ class KotakService:
                     "low": "24280.00", "close": "24310.20", "volume": "520000",
                     "previous_close": "24310.20", "total_quantity_traded": "520000"
                 })
-            # Mock BankNifty
             elif token == "26009":
                 data.append({
                     "instrument_token": token,
@@ -119,7 +123,6 @@ class KotakService:
                     "low": "52150.00", "close": "52300.00", "volume": "380000",
                     "previous_close": "52300.00", "total_quantity_traded": "380000"
                 })
-            # Mock India VIX
             elif token == "26017":
                 data.append({
                     "instrument_token": token,
@@ -127,7 +130,6 @@ class KotakService:
                     "low": "13.80", "close": "14.10", "volume": "0"
                 })
             else:
-                # Mock option premium quote
                 base_premium = 120.0
                 try:
                     parts = token.split("_")
@@ -265,12 +267,10 @@ class KotakService:
         if self.is_paper:
             return {"status": "success", "message": "Scrip master simulated"}
         try:
-            if exchange_segment:
-                return self.client.scrip_master(exchange_segment=exchange_segment)
-            return self.client.scrip_master()
+            return self.client.scrip_master(exchange_segment=exchange_segment)
         except Exception as e:
-            logger.error(f"Scrip master failed: {e}")
-            raise
+            logger.error(f"Failed to fetch scrip master: {e}")
+            return {"error": str(e)}
 
     def place_order(
         self,
@@ -282,27 +282,20 @@ class KotakService:
         validity: str,
         trading_symbol: str,
         transaction_type: str,
-        amo: str = "NO",
-        disclosed_quantity: str = "0",
-        market_protection: str = "0",
         trigger_price: str = "0",
-        tag: Optional[str] = None,
+        disclosed_quantity: str = "0",
     ) -> dict:
         logger.info(
-            f"Placing order (Paper={self.is_paper}): {trading_symbol}, {transaction_type}, "
-            f"qty={quantity}, type={order_type}, price={price}"
+            f"Placing order: sym={trading_symbol}, qty={quantity}, txn={transaction_type} (Paper={self.is_paper})"
         )
         if self.is_paper:
-            mock_id = f"MOCK_ORD_{random.randint(1000000, 9999999)}"
-            return {
-                "status": "success",
-                "orderId": mock_id,
-                "nOrdNo": mock_id,
-                "message": "Simulated order placed successfully"
-            }
+            # Paper execution (simulated order placement, returns mock_id)
+            mock_id = f"MOCK_ORD_{random.randint(100000, 999999)}"
+            logger.info(f"Simulated order success: id={mock_id}")
+            return {"orderId": mock_id, "nOrdNo": mock_id, "status": "success"}
 
         try:
-            response = self.client.place_order(
+            return self.client.place_order(
                 exchange_segment=exchange_segment,
                 product=product,
                 price=price,
@@ -311,16 +304,11 @@ class KotakService:
                 validity=validity,
                 trading_symbol=trading_symbol,
                 transaction_type=transaction_type,
-                amo=amo,
-                disclosed_quantity=disclosed_quantity,
-                market_protection=market_protection,
                 trigger_price=trigger_price,
-                tag=tag,
+                disclosed_quantity=disclosed_quantity,
             )
-            logger.info(f"Order placed: {response}")
-            return response
         except Exception as e:
-            logger.error(f"Order placement failed: {e}")
+            logger.error(f"Failed to place order: {e}")
             raise
 
     def modify_order(
@@ -328,40 +316,34 @@ class KotakService:
         order_id: str,
         price: str,
         quantity: str,
-        disclosed_quantity: str = "0",
-        trigger_price: str = "0",
+        trigger_price: str,
+        order_type: str,
         validity: str = "DAY",
-        order_type: str = "L",
     ) -> dict:
-        logger.info(f"Modifying order: {order_id}")
+        logger.info(f"Modifying order: {order_id} (Paper={self.is_paper})")
         if self.is_paper:
-            return {"status": "success", "orderId": order_id, "message": "Simulated order modification success"}
+            return {"orderId": order_id, "status": "success", "message": "Simulated modification success"}
         try:
-            response = self.client.modify_order(
+            return self.client.modify_order(
                 order_id=order_id,
                 price=price,
                 quantity=quantity,
-                disclosed_quantity=disclosed_quantity,
                 trigger_price=trigger_price,
-                validity=validity,
                 order_type=order_type,
+                validity=validity,
             )
-            logger.info(f"Order modified: {response}")
-            return response
         except Exception as e:
-            logger.error(f"Order modification failed: {e}")
+            logger.error(f"Failed to modify order: {e}")
             raise
 
-    def cancel_order(self, order_id: str, amo: str = "NO") -> dict:
-        logger.info(f"Cancelling order: {order_id}")
+    def cancel_order(self, order_id: str) -> dict:
+        logger.info(f"Cancelling order: {order_id} (Paper={self.is_paper})")
         if self.is_paper:
-            return {"status": "success", "orderId": order_id, "message": "Simulated order cancellation success"}
+            return {"orderId": order_id, "status": "success", "message": "Simulated cancellation success"}
         try:
-            response = self.client.cancel_order(order_id=order_id, amo=amo, isVerify=True)
-            logger.info(f"Order cancelled: {response}")
-            return response
+            return self.client.cancel_order(order_id=order_id)
         except Exception as e:
-            logger.error(f"Order cancellation failed: {e}")
+            logger.error(f"Failed to cancel order: {e}")
             raise
 
     def get_order_report(self) -> dict:
@@ -369,96 +351,54 @@ class KotakService:
         if self.is_paper:
             return {"data": []}
         try:
-            response = self.client.order_report()
-            logger.info("Order report fetched")
-            return response
+            return self.client.order_report()
         except Exception as e:
             logger.error(f"Failed to fetch order report: {e}")
-            raise
-
-    def get_order_history(self, order_id: str) -> dict:
-        logger.info(f"Fetching order history: {order_id}")
-        if self.is_paper:
-            return {"data": []}
-        try:
-            return self.client.order_history(order_id=order_id)
-        except Exception as e:
-            logger.error(f"Failed to fetch order history: {e}")
-            raise
-
-    def get_trade_report(self, order_id: str = "") -> dict:
-        logger.info("Fetching trade report")
-        if self.is_paper:
-            return {"data": []}
-        try:
-            if order_id:
-                return self.client.trade_report(order_id=order_id)
-            return self.client.trade_report()
-        except Exception as e:
-            logger.error(f"Failed to fetch trade report: {e}")
             raise
 
     def get_positions(self) -> dict:
         logger.info("Fetching positions")
         if self.is_paper:
+            # Load virtual open trades from DB
             from database import get_open_trades
             open_trades = get_open_trades()
-            positions_list = []
+            
+            data = []
             for t in open_trades:
-                strike_str = str(int(t.get("strike", 0)))
-                opt_type = "CE" if t.get("option_type") == "CALL" else "PE"
-                symbol = t.get("symbol")
-                expiry = t.get("expiry")
-                
-                # Default mock token ID if API is offline
-                ts = f"{symbol}26JUL{strike_str}{opt_type}"
-                ltp = t.get("entry_price") or 120.0
-                
                 # Fetch real-time price from Kotak Neo if connected
-                if self.client and self.is_authenticated and self._real_authenticated:
+                ltp = t["entry_price"]
+                if self.client and self._real_authenticated:
                     try:
                         search_res = self.search_scrip(
                             exchange_segment="nse_fo",
-                            symbol=symbol,
-                            expiry=expiry,
-                            option_type=opt_type,
-                            strike_price=strike_str
+                            symbol=t["symbol"],
+                            expiry=t.get("expiry", ""),
+                            option_type="CE" if t["option_type"] == "CALL" else "PE",
+                            strike_price=str(int(t["strike"]))
                         )
-                        contracts = []
-                        if isinstance(search_res, list):
-                            contracts = search_res
-                        elif isinstance(search_res, dict):
-                            contracts = search_res.get("data", search_res.get("scrip", []))
-                            if not isinstance(contracts, list):
-                                contracts = [contracts] if contracts else []
-                        
+                        contracts = search_res.get("data", [])
                         if contracts:
-                            contract = contracts[0]
-                            ts = contract.get("pTrdSym", contract.get("tradingSymbol", ts))
-                            token = contract.get("pInstToken", contract.get("instrumentToken", ""))
-                            if token:
-                                quote_resp = self.get_quotes([{"instrument_token": str(token), "exchange_segment": "nse_fo"}])
-                                if quote_resp and isinstance(quote_resp, dict):
-                                    q_data = quote_resp.get("data", [{}])[0]
-                                    ltp = float(q_data.get("ltp", ltp))
-                    except Exception as e:
-                        logger.warning(f"Could not resolve live price for open position: {e}")
-
-                entry_price = t.get("entry_price") or 100.0
-                qty = t.get("quantity", 0)
-                pnl = round((ltp - entry_price) * qty, 2)
+                            token = contracts[0].get("pInstToken", contracts[0].get("instrumentToken"))
+                            quote = self.get_quotes([{"instrument_token": str(token), "exchange_segment": "nse_fo"}])
+                            ltp = float(quote.get("data", [{}])[0].get("ltp", ltp))
+                    except Exception:
+                        pass
                 
-                positions_list.append({
-                    "tradingSymbol": ts,
-                    "symbol": symbol,
-                    "qty": str(qty),
-                    "buyAvg": str(entry_price),
-                    "lastPrice": str(ltp),
-                    "pnl": str(pnl),
-                    "segment": "nse_fo",
-                    "product": "MIS",
+                pnl = round((ltp - t["entry_price"]) * t["quantity"], 2)
+                data.append({
+                    "symbol": t["symbol"],
+                    "tradingSymbol": f"{t['symbol']} {int(t['strike'])} {t['option_type']}",
+                    "qty": t["quantity"],
+                    "quantity": t["quantity"],
+                    "buyAvg": t["entry_price"],
+                    "avgPrice": t["entry_price"],
+                    "lastPrice": ltp,
+                    "ltp": ltp,
+                    "pnl": pnl,
+                    "id": t["id"],
+                    "trade_id": t["id"]
                 })
-            return {"data": positions_list}
+            return {"data": data}
 
         try:
             response = self.client.positions()
@@ -480,40 +420,30 @@ class KotakService:
     def get_limits(self, segment: str = "ALL", exchange: str = "ALL", product: str = "ALL") -> dict:
         logger.info(f"Fetching limits: segment={segment}, exchange={exchange} (Paper={self.is_paper})")
         if self.is_paper:
-            from database import get_closed_trades, get_open_trades
+            from database import get_closed_trades
             starting_capital = 20000.00
-            
-            # Sum up closed trade PnLs
             try:
                 closed = get_closed_trades()
                 realized_pnl = sum(float(t.get("pnl", 0.0)) for t in closed)
             except Exception:
                 realized_pnl = 0.0
 
-            # Calculate current capital balance
             current_capital = starting_capital + realized_pnl
             
             # Deduct initial cost (margin) of active open positions
             margin_used = 0.0
             try:
-                open_trades = get_open_trades()
-                for t in open_trades:
-                    # In option buying, the margin blocked is the full premium cost (entry * quantity)
-                    margin_used += float(t.get("entry_price", 0.0)) * int(t.get("quantity", 0))
+                positions = self.get_positions().get("data", [])
+                margin_used = sum(float(p["qty"]) * float(p["buyAvg"]) for p in positions)
             except Exception:
                 pass
                 
-            available_capital = max(0.0, current_capital - margin_used)
-            
+            available_margin = max(0.0, current_capital - margin_used)
             return {
-                "Net": f"{available_capital:.2f}",
-                "data": {
-                    "Net": f"{available_capital:.2f}",
-                    "margin_used": f"{margin_used:.2f}",
-                    "realized_pnl": f"{realized_pnl:.2f}",
-                    "total_capital": f"{current_capital:.2f}"
-                }
+                "Net": f"{available_margin:.2f}",
+                "data": {"Net": f"{available_margin:.2f}"}
             }
+
         try:
             return self.client.limits(segment=segment, exchange=exchange, product=product)
         except Exception as e:
@@ -545,7 +475,6 @@ class KotakService:
             except Exception as e:
                 logger.error(f"Margin calculation failed: {e}. Falling back to estimate.")
         
-        # Estimate: for option buying, margin is premium * qty (assume base premium 120 if price is 0/market)
         pr = float(price) if (price and price != "0") else 120.0
         est_margin = pr * float(quantity)
         return {"margin_required": f"{est_margin:.2f}"}
@@ -560,6 +489,230 @@ class KotakService:
             self._authenticated = False
         except Exception as e:
             logger.error(f"Logout failed: {e}")
+
+    # --- Market Aggregation Methods (Merged from MarketService) ---
+    def _parse_quote(self, symbol: str, response: dict) -> MarketData:
+        data = response if isinstance(response, dict) else {}
+        return MarketData(
+            symbol=symbol,
+            ltp=float(data.get("ltp", 0)),
+            open=float(data.get("open", 0)),
+            high=float(data.get("high", 0)),
+            low=float(data.get("low", 0)),
+            close=float(data.get("close", data.get("previous_close", 0))),
+            volume=int(data.get("volume", data.get("total_quantity_traded", 0))),
+            timestamp=datetime.now(),
+        )
+
+    def _extract_first_quote(self, response: dict) -> dict:
+        if isinstance(response, list) and len(response) > 0:
+            return response[0]
+        if isinstance(response, dict):
+            data = response.get("data", response)
+            if isinstance(data, list) and len(data) > 0:
+                return data[0]
+            return data
+        return {}
+
+    def get_nifty_price(self) -> MarketData:
+        response = self.get_quotes([NIFTY_TOKEN], quote_type="ltp")
+        data = self._extract_first_quote(response)
+        return self._parse_quote("NIFTY", data)
+
+    def get_banknifty_price(self) -> MarketData:
+        response = self.get_quotes([BANKNIFTY_TOKEN], quote_type="ltp")
+        data = self._extract_first_quote(response)
+        return self._parse_quote("BANKNIFTY", data)
+
+    def get_nifty_ohlc(self) -> MarketData:
+        response = self.get_quotes([NIFTY_TOKEN], quote_type="ohlc")
+        data = self._extract_first_quote(response)
+        return self._parse_quote("NIFTY", data)
+
+    def get_banknifty_ohlc(self) -> MarketData:
+        response = self.get_quotes([BANKNIFTY_TOKEN], quote_type="ohlc")
+        data = self._extract_first_quote(response)
+        return self._parse_quote("BANKNIFTY", data)
+
+    def get_india_vix(self) -> dict:
+        try:
+            response = self.get_quotes([INDIA_VIX_TOKEN], quote_type="ltp")
+            data = self._extract_first_quote(response)
+            return {"vix": float(data.get("ltp", 0))}
+        except Exception as e:
+            logger.warning(f"India VIX unavailable: {e}")
+            return {"vix": None, "error": str(e)}
+
+    def get_market_overview(self) -> dict:
+        tokens = [NIFTY_TOKEN, BANKNIFTY_TOKEN, INDIA_VIX_TOKEN]
+        try:
+            response = self.get_quotes(tokens, quote_type="ohlc")
+            data_list = response.get("data", []) if isinstance(response, dict) else response
+            if not isinstance(data_list, list):
+                data_list = []
+                
+            nifty_data, banknifty_data, vix_data = {}, {}, {}
+            for item in data_list:
+                tk = str(item.get("instrument_token", ""))
+                if tk == NIFTY_TOKEN["instrument_token"]:
+                    nifty_data = item
+                elif tk == BANKNIFTY_TOKEN["instrument_token"]:
+                    banknifty_data = item
+                elif tk == INDIA_VIX_TOKEN["instrument_token"]:
+                    vix_data = item
+                    
+            nifty = self._parse_quote("NIFTY", nifty_data)
+            banknifty = self._parse_quote("BANKNIFTY", banknifty_data)
+            vix_ltp = float(vix_data.get("ltp", 0.0)) if vix_data else 15.0
+            
+            return {
+                "nifty": nifty.model_dump(mode="json"),
+                "banknifty": banknifty.model_dump(mode="json"),
+                "india_vix": {"vix": vix_ltp},
+                "timestamp": datetime.now().isoformat(),
+            }
+        except Exception as e:
+            logger.error(f"Failed to batch fetch market overview: {e}. Falling back to sequential.")
+            nifty = self.get_nifty_ohlc()
+            banknifty = self.get_banknifty_ohlc()
+            vix = self.get_india_vix()
+            return {
+                "nifty": nifty.model_dump(mode="json"),
+                "banknifty": banknifty.model_dump(mode="json"),
+                "india_vix": vix,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+    def get_option_chain(self, symbol: str = "NIFTY", expiry: str = "") -> dict:
+        logger.info(f"Fetching option chain for {symbol}")
+        try:
+            spot_price = self.get_nifty_price().ltp if symbol == "NIFTY" else self.get_banknifty_price().ltp
+            if spot_price <= 0:
+                spot_price = 24350.0 if symbol == "NIFTY" else 52400.0
+
+            results = self.search_scrip(
+                exchange_segment="nse_fo",
+                symbol=symbol,
+                expiry=expiry,
+                option_type="",
+                strike_price="",
+            )
+            contracts = results.get("data", results.get("scrip", [])) if isinstance(results, dict) else results
+            if not isinstance(contracts, list) or not contracts:
+                return {"data": [], "spot_price": spot_price}
+
+            valid_contracts = []
+            for c in contracts:
+                try:
+                    strike_val = float(c.get("strike", c.get("pStrikePrice", 0)))
+                    opt_type = c.get("option_type", c.get("pOptionType", ""))
+                    if strike_val > 0 and opt_type in ("CE", "PE"):
+                        valid_contracts.append(c)
+                except (ValueError, TypeError):
+                    continue
+
+            if not valid_contracts:
+                return {"data": [], "spot_price": spot_price}
+
+            strikes = list(set(float(c.get("strike")) for c in valid_contracts))
+            strikes.sort(key=lambda x: abs(x - spot_price))
+            selected_strikes = sorted(strikes[:10])
+
+            chain_contracts = [c for c in valid_contracts if float(c.get("strike")) in selected_strikes]
+
+            tokens = []
+            for c in chain_contracts:
+                token = c.get("instrumentToken", c.get("pInstToken", ""))
+                seg = c.get("exchangeSegment", c.get("pExchSeg", "nse_fo"))
+                if token:
+                    tokens.append({"instrument_token": str(token), "exchange_segment": seg})
+
+            quotes_data = {}
+            if tokens:
+                try:
+                    quotes_resp = self.get_quotes(tokens, quote_type="ohlc")
+                    q_list = quotes_resp.get("data", []) if isinstance(quotes_resp, dict) else quotes_resp
+                    if not isinstance(q_list, list):
+                        q_list = []
+                    for q in q_list:
+                        tk = str(q.get("instrument_token", ""))
+                        if tk:
+                            quotes_data[tk] = q
+                except Exception as qe:
+                    logger.warning(f"Failed to fetch quotes for option chain: {qe}")
+
+            strike_map = {s: {"strike": s, "CE": None, "PE": None} for s in selected_strikes}
+
+            for c in chain_contracts:
+                strike = float(c.get("strike"))
+                opt_type = c.get("option_type")
+                token = c.get("instrumentToken", c.get("pInstToken", ""))
+                
+                quote = quotes_data.get(str(token), {})
+                default_premium = 120.0 if symbol == "NIFTY" else 280.0
+                ltp_val = float(quote.get("ltp", quote.get("last_price", default_premium)))
+                
+                details = {
+                    "symbol": c.get("tradingSymbol", c.get("pTrdSym", "")),
+                    "token": token,
+                    "expiry": c.get("expiry", c.get("pExpiryDate", "")),
+                    "ltp": ltp_val,
+                    "change": float(quote.get("change", 0.0)),
+                    "volume": int(quote.get("volume", quote.get("total_quantity_traded", 0))),
+                    "oi": int(c.get("call_oi", c.get("put_oi", quote.get("open_interest", 1000000))))
+                }
+                
+                if opt_type == "CE":
+                    strike_map[strike]["CE"] = details
+                elif opt_type == "PE":
+                    strike_map[strike]["PE"] = details
+
+            chain_list = [strike_map[s] for s in selected_strikes]
+            return {"data": chain_list, "spot_price": spot_price, "symbol": symbol}
+        except Exception as e:
+            logger.error(f"Option chain construction failed: {e}")
+            return {"data": [], "spot_price": 0.0}
+
+    def get_atm_option_details(self, symbol: str, option_type: str, spot_price: float) -> dict:
+        step = 50 if symbol == "NIFTY" else 100
+        strike = round(spot_price / step) * step
+        ot_key = "CE" if option_type.upper() in ("CALL", "CE") else "PE"
+        logger.info(f"Finding ATM option for {symbol}: spot={spot_price}, strike={strike}, type={ot_key}")
+
+        try:
+            results = self.search_scrip(
+                exchange_segment="nse_fo",
+                symbol=symbol,
+                expiry="",
+                option_type=ot_key,
+                strike_price=str(strike),
+            )
+            contracts = results.get("data", results.get("scrip", [])) if isinstance(results, dict) else results
+            if not isinstance(contracts, list) or not contracts:
+                return {}
+
+            contract = contracts[0]
+            trading_symbol = contract.get("pTrdSym", contract.get("tradingSymbol", ""))
+            token = contract.get("pInstToken", contract.get("instrumentToken", ""))
+
+            ltp = 0.0
+            expiry = contract.get("pExpiryDate", contract.get("expiry", ""))
+            if token:
+                quote_resp = self.get_quotes([{"instrument_token": str(token), "exchange_segment": "nse_fo"}])
+                quote_data = self._extract_first_quote(quote_resp)
+                ltp = float(quote_data.get("ltp", 0.0))
+
+            return {
+                "trading_symbol": trading_symbol,
+                "instrument_token": token,
+                "strike": float(strike),
+                "option_type": ot_key,
+                "ltp": ltp,
+                "expiry": expiry
+            }
+        except Exception as e:
+            logger.error(f"Failed to fetch ATM option details: {e}")
+            return {}
 
 
 from functools import lru_cache
