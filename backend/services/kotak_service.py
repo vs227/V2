@@ -106,6 +106,7 @@ class KotakService:
             # Mock Nifty
             if token == "26000":
                 data.append({
+                    "instrument_token": token,
                     "ltp": "24350.50", "open": "24300.00", "high": "24400.00",
                     "low": "24280.00", "close": "24310.20", "volume": "520000",
                     "previous_close": "24310.20", "total_quantity_traded": "520000"
@@ -113,6 +114,7 @@ class KotakService:
             # Mock BankNifty
             elif token == "26009":
                 data.append({
+                    "instrument_token": token,
                     "ltp": "52450.00", "open": "52200.00", "high": "52600.00",
                     "low": "52150.00", "close": "52300.00", "volume": "380000",
                     "previous_close": "52300.00", "total_quantity_traded": "380000"
@@ -120,24 +122,56 @@ class KotakService:
             # Mock India VIX
             elif token == "26017":
                 data.append({
+                    "instrument_token": token,
                     "ltp": "14.25", "open": "14.00", "high": "14.50",
                     "low": "13.80", "close": "14.10", "volume": "0"
                 })
             else:
                 # Mock option premium quote
                 base_premium = 120.0
-                if "NIFTY" in token:
-                    base_premium = 120.0 + random.uniform(-15, 15)
-                elif "BANKNIFTY" in token:
-                    base_premium = 280.0 + random.uniform(-30, 30)
+                try:
+                    parts = token.split("_")
+                    if len(parts) == 3:
+                        sym, strike_str, ot = parts
+                        strike_val = float(strike_str)
+                        spot_val = 24350.0 if sym == "NIFTY" else 52450.0
+                        
+                        # Intrinsic + Time value pricing
+                        if ot == "CE":
+                            intrinsic = max(0.0, spot_val - strike_val)
+                        else:
+                            intrinsic = max(0.0, strike_val - spot_val)
+                        
+                        distance = abs(spot_val - strike_val)
+                        time_value = max(10.0, 150.0 - (distance * 0.1))
+                        base_premium = intrinsic + time_value + random.uniform(-5, 5)
+                        if sym == "NIFTY":
+                            # Nifty premiums are typically lower than BankNifty
+                            base_premium = base_premium * 0.5
+                except Exception:
+                    if "NIFTY" in token:
+                        base_premium = 120.0 + random.uniform(-15, 15)
+                    elif "BANKNIFTY" in token:
+                        base_premium = 280.0 + random.uniform(-30, 30)
                 
+                # Mock volume based on ITM/OTM distance (near-the-money has higher volume)
+                vol_base = 50000
+                try:
+                    parts = token.split("_")
+                    if len(parts) == 3:
+                        distance = abs(float(parts[1]) - (24350.0 if parts[0] == "NIFTY" else 52450.0))
+                        vol_base = max(1000, int(120000 - (distance * 100)))
+                except Exception:
+                    pass
+
                 data.append({
+                    "instrument_token": token,
                     "ltp": str(round(base_premium, 2)),
                     "open": str(round(base_premium * 0.95, 2)),
                     "high": str(round(base_premium * 1.15, 2)),
                     "low": str(round(base_premium * 0.85, 2)),
                     "close": str(round(base_premium * 0.98, 2)),
-                    "volume": "15000",
+                    "volume": str(vol_base),
                     "previous_close": str(round(base_premium * 0.98, 2))
                 })
         return {"data": data}
