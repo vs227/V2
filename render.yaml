@@ -21,6 +21,10 @@ services:
         sync: false
       - key: SUPABASE_DB_URL
         sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
       - key: PAPER_TRADING
         value: "True"
       - key: LOG_LEVEL

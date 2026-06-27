@@ -11,3 +11,4 @@ psycopg2-binary==2.9.12
 websockets==8.1
 wsproto>=1.2.0
 gunicorn==23.0.0
+supabase==2.8.1

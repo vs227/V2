@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     
     supabase_db_url: str = ""
+    supabase_url: str = ""
+    supabase_key: str = ""
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
