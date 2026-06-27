@@ -46,7 +46,7 @@ class KotakService:
         if self.client:
             settings = get_settings()
             logger.info("Logging in to Kotak Neo via TOTP (Real Connection)")
-            if totp == "123456" or settings.paper_trading:
+            if totp == "123456":
                 logger.info("Login (Simulated Bypass): Authenticating with dummy TOTP")
                 self._authenticated = True
                 self._real_authenticated = False
@@ -82,15 +82,13 @@ class KotakService:
 
     @property
     def is_authenticated(self) -> bool:
-        if self.is_paper:
-            return self._authenticated
-        return self._real_authenticated
+        return self._authenticated or self._real_authenticated
 
     def get_quotes(self, instrument_tokens: list[dict], quote_type: str = "ltp") -> dict:
         logger.info(f"Fetching quotes: {instrument_tokens}, type={quote_type}")
         
-        # 1. Try real API call if in live mode and logged in
-        if self.client and self._real_authenticated and not self.is_paper:
+        # 1. Try real API call if logged in
+        if self.client and self._real_authenticated:
             try:
                 response = self.client.quotes(
                     instrument_tokens=instrument_tokens,
@@ -189,14 +187,14 @@ class KotakService:
         import time
         cache_key = (exchange_segment, symbol, expiry, option_type, strike_price)
         now = time.time()
-        if not self.is_paper and cache_key in self._scrip_cache:
+        if cache_key in self._scrip_cache:
             ts, cached_res = self._scrip_cache[cache_key]
             if now - ts < 3600:  # 1 hour TTL
                 logger.info(f"Returning cached scrip search for {symbol}")
                 return cached_res
                 
-        # 2. Try real API call if in live mode and logged in
-        if self.client and self._real_authenticated and not self.is_paper:
+        # 2. Try real API call if logged in
+        if self.client and self._real_authenticated:
             try:
                 response = self.client.search_scrip(
                     exchange_segment=exchange_segment,
@@ -472,7 +470,7 @@ class KotakService:
 
     def get_holdings(self) -> dict:
         logger.info("Fetching holdings")
-        if self.client and self.is_authenticated and self._real_authenticated and not self.is_paper:
+        if self.client and self._real_authenticated:
             try:
                 return self.client.holdings()
             except Exception as e:
@@ -533,7 +531,7 @@ class KotakService:
         transaction_type: str,
     ) -> dict:
         logger.info(f"Calculating margin: token={instrument_token}, qty={quantity}")
-        if self.client and self.is_authenticated and self._real_authenticated and not self.is_paper:
+        if self.client and self._real_authenticated:
             try:
                 return self.client.margin_required(
                     exchange_segment=exchange_segment,
