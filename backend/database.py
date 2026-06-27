@@ -1,7 +1,7 @@
 from datetime import datetime
 from config import get_settings
 from logger import setup_logger
-from supabase import create_client, Client
+import httpx
 import psycopg2
 from psycopg2.extras import DictCursor
 import socket
@@ -11,14 +11,20 @@ from psycopg2.pool import ThreadedConnectionPool
 logger = setup_logger("database")
 settings = get_settings()
 
-# Initialize Supabase client
-supabase: Client = None
-try:
-    if settings.supabase_url and settings.supabase_key:
-        supabase = create_client(settings.supabase_url, settings.supabase_key)
-        logger.info("Supabase client initialized successfully")
-except Exception as e:
-    logger.warning(f"Failed to initialize Supabase client: {e}")
+# Initialize httpx client for Supabase
+supabase_client = None
+if settings.supabase_url and settings.supabase_key:
+    supabase_client = httpx.Client(
+        base_url=f"{settings.supabase_url}/rest/v1",
+        headers={
+            "apikey": settings.supabase_key,
+            "Authorization": f"Bearer {settings.supabase_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation"
+        },
+        timeout=10.0
+    )
+    logger.info("Supabase HTTP client initialized successfully")
 
 # Fallback to psycopg2 if needed
 _pool = None
@@ -94,16 +100,15 @@ def get_db_connection():
 
 def init_db() -> None:
     try:
-        # Try using Supabase client first to create table via RPC or just let it fail silently
-        # The table should already exist in Supabase
+        # Table should already exist in Supabase
         logger.info("Database initialization skipped (table should exist in Supabase)")
     except Exception as e:
         logger.error(f"Database initialization failed (will retry later): {e}")
 
 def insert_trade(trade: dict) -> int:
     try:
-        if supabase:
-            # Use Supabase client
+        if supabase_client:
+            # Use Supabase REST API
             default_fields = [
                 "gross_pnl", "total_charges", "brokerage", "stt",
                 "transaction_charges", "gst", "sebi_fees", "stamp_duty",
@@ -113,9 +118,11 @@ def insert_trade(trade: dict) -> int:
                 if field not in trade:
                     trade[field] = None if field in ["strike", "expiry", "option_type", "stoploss", "target", "order_id", "strategy", "reason"] else 0.0
             
-            response = supabase.table("trades").insert(trade).execute()
-            trade_id = response.data[0]["id"]
-            logger.info(f"Trade inserted (Supabase): id={trade_id}, symbol={trade.get('symbol')}")
+            response = supabase_client.post("/trades", json=trade)
+            response.raise_for_status()
+            result = response.json()
+            trade_id = result[0]["id"]
+            logger.info(f"Trade inserted (Supabase REST): id={trade_id}, symbol={trade.get('symbol')}")
             return trade_id
         else:
             # Fallback to psycopg2
@@ -158,9 +165,11 @@ def insert_trade(trade: dict) -> int:
 
 def get_trade(trade_id: int) -> dict:
     try:
-        if supabase:
-            response = supabase.table("trades").select("*").eq("id", trade_id).single().execute()
-            return response.data
+        if supabase_client:
+            response = supabase_client.get("/trades", params={"id": f"eq.{trade_id}", "select": "*"})
+            response.raise_for_status()
+            result = response.json()
+            return result[0] if result else None
         else:
             conn = get_db_connection()
             cursor = conn.cursor(cursor_factory=DictCursor)
@@ -175,12 +184,13 @@ def get_trade(trade_id: int) -> dict:
 
 def get_open_trades(symbol: str = None) -> list:
     try:
-        if supabase:
-            query = supabase.table("trades").select("*").eq("status", "OPEN").order("timestamp", desc=True)
+        if supabase_client:
+            params = {"status": "eq.OPEN", "order": "timestamp.desc", "select": "*"}
             if symbol:
-                query = query.eq("symbol", symbol)
-            response = query.execute()
-            return response.data
+                params["symbol"] = f"eq.{symbol}"
+            response = supabase_client.get("/trades", params=params)
+            response.raise_for_status()
+            return response.json()
         else:
             conn = get_db_connection()
             cursor = conn.cursor(cursor_factory=DictCursor)
@@ -198,12 +208,13 @@ def get_open_trades(symbol: str = None) -> list:
 
 def get_all_trades(limit: int = 100, symbol: str = None) -> list:
     try:
-        if supabase:
-            query = supabase.table("trades").select("*").order("timestamp", desc=True).limit(limit)
+        if supabase_client:
+            params = {"order": "timestamp.desc", "limit": str(limit), "select": "*"}
             if symbol:
-                query = query.eq("symbol", symbol)
-            response = query.execute()
-            return response.data
+                params["symbol"] = f"eq.{symbol}"
+            response = supabase_client.get("/trades", params=params)
+            response.raise_for_status()
+            return response.json()
         else:
             conn = get_db_connection()
             cursor = conn.cursor(cursor_factory=DictCursor)
@@ -221,12 +232,13 @@ def get_all_trades(limit: int = 100, symbol: str = None) -> list:
 
 def get_closed_trades(limit: int = 100, symbol: str = None) -> list:
     try:
-        if supabase:
-            query = supabase.table("trades").select("*").eq("status", "CLOSED").order("timestamp", desc=True).limit(limit)
+        if supabase_client:
+            params = {"status": "eq.CLOSED", "order": "timestamp.desc", "limit": str(limit), "select": "*"}
             if symbol:
-                query = query.eq("symbol", symbol)
-            response = query.execute()
-            return response.data
+                params["symbol"] = f"eq.{symbol}"
+            response = supabase_client.get("/trades", params=params)
+            response.raise_for_status()
+            return response.json()
         else:
             conn = get_db_connection()
             cursor = conn.cursor(cursor_factory=DictCursor)
@@ -244,10 +256,18 @@ def get_closed_trades(limit: int = 100, symbol: str = None) -> list:
 
 def get_trades_by_date(date_str: str) -> list:
     try:
-        if supabase:
-            # Use Supabase filter for date
-            response = supabase.table("trades").select("*").filter("timestamp", "gte", f"{date_str}T00:00:00").filter("timestamp", "lte", f"{date_str}T23:59:59").order("timestamp", desc=True).execute()
-            return response.data
+        if supabase_client:
+            # Use Supabase filter for date - pass timestamp as a list for multiple conditions
+            response = supabase_client.get(
+                "/trades",
+                params={
+                    "timestamp": [f"gte.{date_str}T00:00:00", f"lte.{date_str}T23:59:59"],
+                    "order": "timestamp.desc",
+                    "select": "*"
+                }
+            )
+            response.raise_for_status()
+            return response.json()
         else:
             conn = get_db_connection()
             cursor = conn.cursor(cursor_factory=DictCursor)
@@ -265,10 +285,12 @@ def get_trades_by_date(date_str: str) -> list:
 
 def update_trade(trade_id: int, updates: dict) -> bool:
     try:
-        if supabase:
+        if supabase_client:
             updates["updated_at"] = datetime.now().isoformat()
-            response = supabase.table("trades").update(updates).eq("id", trade_id).execute()
-            return len(response.data) > 0
+            response = supabase_client.patch(f"/trades?id=eq.{trade_id}", json=updates)
+            response.raise_for_status()
+            result = response.json()
+            return len(result) > 0
         else:
             conn = get_db_connection()
             cursor = conn.cursor()
@@ -292,10 +314,19 @@ def get_daily_pnl(date_str: str = None) -> float:
         if not date_str:
             date_str = datetime.now().strftime("%Y-%m-%d")
         
-        if supabase:
+        if supabase_client:
             # Get all closed trades for the day and sum pnl
-            response = supabase.table("trades").select("pnl").eq("status", "CLOSED").filter("timestamp", "gte", f"{date_str}T00:00:00").filter("timestamp", "lte", f"{date_str}T23:59:59").execute()
-            total = sum(t["pnl"] or 0 for t in response.data)
+            response = supabase_client.get(
+                "/trades",
+                params={
+                    "status": "eq.CLOSED",
+                    "timestamp": [f"gte.{date_str}T00:00:00", f"lte.{date_str}T23:59:59"],
+                    "select": "pnl"
+                }
+            )
+            response.raise_for_status()
+            trades = response.json()
+            total = sum(t["pnl"] or 0 for t in trades)
             return float(total)
         else:
             conn = get_db_connection()
