@@ -6,6 +6,7 @@ backend/*.pyc
 backend/storage/trades.db
 backend/logs/*.log
 backend/logs/
+backend/static/
 
 # Frontend
 frontend/.env

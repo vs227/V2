@@ -70,21 +70,7 @@ async def login(request: LoginRequest):
         return APIResponse(success=False, message=str(e))
 
 
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-
-
-app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
-
-
-@app.get("/favicon.svg", tags=["Health"])
-async def favicon():
-    return FileResponse("static/favicon.svg")
-
-
-@app.get("/", tags=["Health"])
-async def root():
-    return FileResponse("static/index.html")
+# No static file serving - backend is API only
 
 
 @app.get("/health", tags=["Health"])
