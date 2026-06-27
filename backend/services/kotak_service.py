@@ -18,6 +18,7 @@ class KotakService:
         settings = get_settings()
         self._authenticated = False
         self._real_authenticated = False
+        self._scrip_cache = {}
 
         # Always initialize self.client if SDK is present to fetch real market data/quotes
         if HAS_SDK:
@@ -87,7 +88,7 @@ class KotakService:
 
     def get_quotes(self, instrument_tokens: list[dict], quote_type: str = "ltp") -> dict:
         logger.info(f"Fetching quotes: {instrument_tokens}, type={quote_type}")
-        if self.client and self.is_authenticated and self._real_authenticated:
+        if self.client and self.is_authenticated and self._real_authenticated and not self.is_paper:
             try:
                 response = self.client.quotes(
                     instrument_tokens=instrument_tokens,
@@ -150,7 +151,18 @@ class KotakService:
         strike_price: str = "",
     ) -> dict:
         logger.info(f"Searching scrip: {symbol} on {exchange_segment} (Paper={self.is_paper})")
-        if self.client and self.is_authenticated and self._real_authenticated:
+        
+        # Check cache first for real calls
+        import time
+        cache_key = (exchange_segment, symbol, expiry, option_type, strike_price)
+        now = time.time()
+        if not self.is_paper and cache_key in self._scrip_cache:
+            ts, cached_res = self._scrip_cache[cache_key]
+            if now - ts < 3600:  # 1 hour TTL
+                logger.info(f"Returning cached scrip search for {symbol}")
+                return cached_res
+                
+        if self.client and self.is_authenticated and self._real_authenticated and not self.is_paper:
             try:
                 response = self.client.search_scrip(
                     exchange_segment=exchange_segment,
@@ -160,12 +172,13 @@ class KotakService:
                     strike_price=strike_price,
                 )
                 logger.info(f"Scrip search complete: {symbol} (Real data)")
+                self._scrip_cache[cache_key] = (now, response)
                 return response
             except Exception as e:
                 logger.error(f"Scrip search failed: {e}. Falling back to mocks.")
 
         # Simulated fallback scrip search
-        if not self.client or not self.is_authenticated or not self._real_authenticated:
+        if not self.client or not self.is_authenticated or not self._real_authenticated or self.is_paper:
             strikes = []
             if symbol == "NIFTY":
                 atm = 24350
@@ -439,7 +452,7 @@ class KotakService:
 
     def get_holdings(self) -> dict:
         logger.info("Fetching holdings")
-        if self.client and self.is_authenticated and self._real_authenticated:
+        if self.client and self.is_authenticated and self._real_authenticated and not self.is_paper:
             try:
                 return self.client.holdings()
             except Exception as e:
@@ -500,7 +513,7 @@ class KotakService:
         transaction_type: str,
     ) -> dict:
         logger.info(f"Calculating margin: token={instrument_token}, qty={quantity}")
-        if self.client and self.is_authenticated and self._real_authenticated:
+        if self.client and self.is_authenticated and self._real_authenticated and not self.is_paper:
             try:
                 return self.client.margin_required(
                     exchange_segment=exchange_segment,
