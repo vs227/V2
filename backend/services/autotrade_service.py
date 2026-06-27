@@ -11,7 +11,8 @@ from logger import setup_logger
 from schemas import (
     BuyRequest, ExitRequest, SellRequest,
     AnalysisResult, StrategyRecommendation, RiskDecision,
-    TrendDirection, SignalType, TradeStatus, OptionType
+    TrendDirection, SignalType, TradeStatus, OptionType,
+    MarketData
 )
 from database import (
     insert_trade, update_trade, get_trade,
