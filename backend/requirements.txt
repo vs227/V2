@@ -1,0 +1,12 @@
+fastapi==0.115.6
+uvicorn==0.32.0
+neo_api_client @ git+https://github.com/Kotak-Neo/Kotak-neo-api-v2.git@v2.0.2#egg=neo_api_client
+pydantic==2.10.3
+pydantic-settings==2.7.1
+apscheduler==3.10.4
+python-dotenv==1.0.0
+groq==1.5.0
+psycopg2-binary==2.9.12
+websockets==8.1
+wsproto>=1.2.0
+

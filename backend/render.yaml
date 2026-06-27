@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: ai-options-trader-backend
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 4 -k uvicorn.workers.UvicornWorker app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: KOTAK_CONSUMER_KEY
+        sync: false
+      - key: KOTAK_MOBILE_NUMBER
+        sync: false
+      - key: KOTAK_UCC
+        sync: false
+      - key: KOTAK_MPIN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SUPABASE_DB_URL
+        sync: false
+      - key: PAPER_TRADING
+        value: "True"
+      - key: LOG_LEVEL
+        value: "INFO"
