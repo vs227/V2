@@ -140,18 +140,27 @@ class LLMService:
     """Performs LLM-based option chain scans using Groq API"""
     def __init__(self):
         settings = get_settings()
-        if not settings.groq_api_key:
-            raise ValueError("GROQ_API_KEY is required.")
-        self.client = Groq(api_key=settings.groq_api_key)
+        self.client = None
+        if settings.groq_api_key and not settings.groq_api_key.startswith("your_"):
+            try:
+                self.client = Groq(api_key=settings.groq_api_key)
+            except Exception as e:
+                logger.warning(f"Failed to initialize Groq client: {e}. Using simulated/rule-based scans.")
+        else:
+            logger.warning("GROQ_API_KEY not configured or placeholder. Using simulated/rule-based scans.")
 
     def analyze_with_llm(self, nifty_data: MarketData, banknifty_data: MarketData, option_chain: dict, vix: dict) -> AnalysisResult:
         spot_price = nifty_data.ltp
         contracts = option_chain.get("data", option_chain.get("scrip", []))
+        symbol = "NIFTY"
         if contracts and "BANKNIFTY" in contracts[0].get("tradingSymbol", contracts[0].get("pTrdSym", "")):
             spot_price = banknifty_data.ltp
+            symbol = "BANKNIFTY"
 
-        pruned_chain = self._prune_option_chain(option_chain)
-        prompt = f"""
+        if self.client:
+            try:
+                pruned_chain = self._prune_option_chain(option_chain)
+                prompt = f"""
 NIFTY 50: LTP={nifty_data.ltp}, Open={nifty_data.open}, High={nifty_data.high}, Low={nifty_data.low}, PrevClose={nifty_data.close}
 BANKNIFTY: LTP={banknifty_data.ltp}, Open={banknifty_data.open}, High={banknifty_data.high}, Low={banknifty_data.low}, PrevClose={banknifty_data.close}
 VIX: {vix}
@@ -160,26 +169,65 @@ Option Chain Summary (Nearest strikes):
 
 Analyze this data for a short-term scalping opportunity.
 """
-        completion = self.client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": 'Respond ONLY in JSON:\n{"trend": "BULLISH"|"BEARISH"|"SIDEWAYS", "signal": "BUY_CALL"|"BUY_PUT"|"NO_TRADE", "confidence": 0-100, "reasoning": "brief explain"}'},
-                {"role": "user", "content": prompt}
-            ],
-            model="llama-3.3-70b-versatile",
-            temperature=0.1,
-            max_tokens=300
-        )
-        response_text = completion.choices[0].message.content.strip()
-        match = re.search(r'\{[^{}]*\}', response_text)
-        if not match:
-            raise ValueError("Invalid LLM response format")
-        
-        res_json = json.loads(match.group())
+                completion = self.client.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": 'Respond ONLY in JSON:\n{"trend": "BULLISH"|"BEARISH"|"SIDEWAYS", "signal": "BUY_CALL"|"BUY_PUT"|"NO_TRADE", "confidence": 0-100, "reasoning": "brief explain"}'},
+                        {"role": "user", "content": prompt}
+                    ],
+                    model="llama-3.3-70b-versatile",
+                    temperature=0.1,
+                    max_tokens=300
+                )
+                response_text = completion.choices[0].message.content.strip()
+                match = re.search(r'\{[^{}]*\}', response_text)
+                if match:
+                    res_json = json.loads(match.group())
+                    return AnalysisResult(
+                        trend=TrendDirection(res_json.get("trend", "SIDEWAYS")),
+                        confidence=float(res_json.get("confidence", 0)),
+                        signal=SignalType(res_json.get("signal", "NO_TRADE")),
+                        reason=res_json.get("reasoning", "LLM scan")
+                    )
+            except Exception as e:
+                logger.warning(f"Groq API call failed: {e}. Falling back to rule-based analysis.")
+
+        # Rule-based fallback scanner
+        target_data = nifty_data if symbol == "NIFTY" else banknifty_data
+        change_pct = ((target_data.ltp - target_data.close) / target_data.close * 100) if target_data.close else 0
+
+        total_ce_vol = 0
+        total_pe_vol = 0
+        for item in option_chain.get("data", []):
+            ce = item.get("CE")
+            pe = item.get("PE")
+            if ce:
+                total_ce_vol += ce.get("volume", 0)
+            if pe:
+                total_pe_vol += pe.get("volume", 0)
+
+        pcr = (total_pe_vol / total_ce_vol) if total_ce_vol > 0 else 1.0
+
+        if change_pct > 0.15 or pcr > 1.25:
+            trend = TrendDirection.BULLISH
+            signal = SignalType.BUY_CALL
+            confidence = round(65.0 + min(20.0, abs(change_pct) * 50), 2)
+            reason = f"Rule-based Scan: {symbol} trading at premium to previous close (+{change_pct:.2f}%). Put-Call ratio ({pcr:.2f}) indicates bullish support on key option strikes."
+        elif change_pct < -0.15 or pcr < 0.75:
+            trend = TrendDirection.BEARISH
+            signal = SignalType.BUY_PUT
+            confidence = round(65.0 + min(20.0, abs(change_pct) * 50), 2)
+            reason = f"Rule-based Scan: {symbol} trading under pressure (-{change_pct:.2f}%). Volume buildup on Calls with low Put-Call Ratio ({pcr:.2f}) suggests bearish continuation."
+        else:
+            trend = TrendDirection.SIDEWAYS
+            signal = SignalType.NO_TRADE
+            confidence = 45.0
+            reason = f"Rule-based Scan: Indices consolidating in tight range ({change_pct:+.2f}%). Volatility is low and option volume distribution does not warrant scalping entry."
+
         return AnalysisResult(
-            trend=TrendDirection(res_json.get("trend", "SIDEWAYS")),
-            confidence=float(res_json.get("confidence", 0)),
-            signal=SignalType(res_json.get("signal", "NO_TRADE")),
-            reason=res_json.get("reasoning", "LLM scan")
+            trend=trend,
+            confidence=confidence,
+            signal=signal,
+            reason=reason
         )
 
     def _prune_option_chain(self, option_chain: dict) -> str:

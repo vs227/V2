@@ -3,6 +3,7 @@ from logger import setup_logger
 from typing import Optional
 from datetime import datetime
 import random
+from concurrent.futures import ThreadPoolExecutor
 from schemas import MarketData
 
 logger = setup_logger("kotak")
@@ -26,6 +27,7 @@ class KotakService:
         self._authenticated = False
         self._real_authenticated = False
         self._scrip_cache = {}
+        self._token_map = {}
 
         if HAS_SDK:
             try:
@@ -42,6 +44,90 @@ class KotakService:
         else:
             self.client = None
             logger.info("Kotak Neo client SDK not found. Running in fully offline mock mode.")
+
+    def _parse_strike(self, c: dict) -> float:
+        for k in ["strike", "pStrikePrice", "strikePrice"]:
+            val = c.get(k)
+            if val is not None:
+                try:
+                    return float(val)
+                except (ValueError, TypeError):
+                    pass
+        for k in ["dStrikePrice;", "dStrikePrice"]:
+            val = c.get(k)
+            if val is not None:
+                try:
+                    raw_val = float(val)
+                    if raw_val > 100000:
+                        return raw_val / 100.0
+                    return raw_val
+                except (ValueError, TypeError):
+                    pass
+        return 0.0
+
+    def _parse_option_type(self, c: dict) -> str:
+        for k in ["option_type", "pOptionType", "optionType"]:
+            val = c.get(k)
+            if val:
+                return str(val).strip().upper()
+        return ""
+
+    def _parse_token(self, c: dict) -> str:
+        for k in ["instrumentToken", "pInstToken", "instrument_token", "pSymbol", "symbol"]:
+            val = c.get(k)
+            if val is not None:
+                val_str = str(val).strip()
+                if val_str and not val_str.isalpha():
+                    return val_str
+        return ""
+
+    def _parse_trading_symbol(self, c: dict) -> str:
+        for k in ["tradingSymbol", "pTrdSym", "pTrdSymbol", "trading_symbol"]:
+            val = c.get(k)
+            if val:
+                return str(val).strip()
+        return ""
+
+    def _parse_expiry(self, c: dict) -> str:
+        for k in ["expiry", "pExpiryDate", "expiry_date"]:
+            val = c.get(k)
+            if val:
+                return str(val).strip()
+        return ""
+
+    def _parse_expiry_to_date(self, expiry_str: str) -> Optional[datetime]:
+        if not expiry_str:
+            return None
+        for fmt in ["%d%b%Y", "%Y-%m-%d", "%d-%b-%Y"]:
+            try:
+                return datetime.strptime(expiry_str, fmt)
+            except ValueError:
+                pass
+        return None
+
+    def _update_token_map(self, response) -> None:
+        if not response:
+            return
+        contracts = []
+        if isinstance(response, list):
+            contracts = response
+        elif isinstance(response, dict):
+            contracts = response.get("data", response.get("scrip", []))
+            if not isinstance(contracts, list):
+                contracts = [contracts] if contracts else []
+        
+        for c in contracts:
+            if not isinstance(c, dict):
+                continue
+            token = self._parse_token(c)
+            if token:
+                symbol = self._parse_trading_symbol(c)
+                base_symbol = "NIFTY" if "NIFTY" in symbol else ("BANKNIFTY" if "BANKNIFTY" in symbol else "")
+                self._token_map[str(token)] = {
+                    "symbol": base_symbol,
+                    "strike": self._parse_strike(c),
+                    "option_type": self._parse_option_type(c)
+                }
 
     @property
     def is_paper(self) -> bool:
@@ -131,13 +217,27 @@ class KotakService:
                 })
             else:
                 base_premium = 120.0
-                try:
-                    parts = token.split("_")
-                    if len(parts) == 3:
-                        sym, strike_str, ot = parts
-                        strike_val = float(strike_str)
+                sym, strike_val, ot = "", 0.0, ""
+                
+                token_str = str(token)
+                if token_str in self._token_map:
+                    info = self._token_map[token_str]
+                    sym = info.get("symbol", "")
+                    strike_val = info.get("strike", 0.0)
+                    ot = info.get("option_type", "")
+                
+                if not sym or not strike_val or not ot:
+                    try:
+                        parts = token_str.split("_")
+                        if len(parts) == 3:
+                            sym, strike_str, ot = parts
+                            strike_val = float(strike_str)
+                    except Exception:
+                        pass
+                
+                if sym and strike_val and ot:
+                    try:
                         spot_val = 24350.0 if sym == "NIFTY" else 52450.0
-                        
                         if ot == "CE":
                             intrinsic = max(0.0, spot_val - strike_val)
                         else:
@@ -148,20 +248,30 @@ class KotakService:
                         base_premium = intrinsic + time_value + random.uniform(-5, 5)
                         if sym == "NIFTY":
                             base_premium = base_premium * 0.5
-                except Exception:
-                    if "NIFTY" in token:
+                    except Exception:
+                        pass
+                else:
+                    if "NIFTY" in token_str:
                         base_premium = 120.0 + random.uniform(-15, 15)
-                    elif "BANKNIFTY" in token:
+                    elif "BANKNIFTY" in token_str:
                         base_premium = 280.0 + random.uniform(-30, 30)
                 
                 vol_base = 50000
-                try:
-                    parts = token.split("_")
-                    if len(parts) == 3:
-                        distance = abs(float(parts[1]) - (24350.0 if parts[0] == "NIFTY" else 52450.0))
+                if sym and strike_val:
+                    try:
+                        spot_val = 24350.0 if sym == "NIFTY" else 52450.0
+                        distance = abs(strike_val - spot_val)
                         vol_base = max(1000, int(120000 - (distance * 100)))
-                except Exception:
-                    pass
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        parts = token_str.split("_")
+                        if len(parts) == 3:
+                            distance = abs(float(parts[1]) - (24350.0 if parts[0] == "NIFTY" else 52450.0))
+                            vol_base = max(1000, int(120000 - (distance * 100)))
+                    except Exception:
+                        pass
 
                 data.append({
                     "instrument_token": token,
@@ -211,8 +321,15 @@ class KotakService:
                 )
                 
                 # Verify that response is valid and does not contain API error fields
-                if isinstance(response, dict) and ("data" in response or "scrip" in response) and not ("Error" in response or "Error Message" in response):
+                is_valid = False
+                if isinstance(response, list) and len(response) > 0:
+                    is_valid = True
+                elif isinstance(response, dict) and ("data" in response or "scrip" in response) and not ("Error" in response or "Error Message" in response):
+                    is_valid = True
+
+                if is_valid:
                     logger.info(f"Scrip search complete: {symbol} (Real data)")
+                    self._update_token_map(response)
                     self._scrip_cache[cache_key] = (now, response)
                     return response
                 else:
@@ -222,24 +339,25 @@ class KotakService:
                 
         # 3. Fallback mock scrip search
         if strike_price:
-            opt_key = option_type if option_type else "CE"
             exp_str = expiry if expiry else "2026-07-02"
-            tradingsymbol = f"{symbol}{exp_str.replace('-', '')}{strike_price}{opt_key}"
-            token = f"{symbol}_{strike_price}_{opt_key}"
-            return {
-                "data": [
-                    {
-                        "pTrdSym": tradingsymbol,
-                        "tradingSymbol": tradingsymbol,
-                        "pInstToken": token,
-                        "instrumentToken": token,
-                        "pExpiryDate": exp_str,
-                        "expiry": exp_str,
-                        "strike": float(strike_price),
-                        "option_type": opt_key,
-                    }
-                ]
-            }
+            opt_types = [option_type] if option_type else ["CE", "PE"]
+            data = []
+            for ot in opt_types:
+                tradingsymbol = f"{symbol}{exp_str.replace('-', '')}{strike_price}{ot}"
+                token = f"{symbol}_{strike_price}_{ot}"
+                data.append({
+                    "pTrdSym": tradingsymbol,
+                    "tradingSymbol": tradingsymbol,
+                    "pInstToken": token,
+                    "instrumentToken": token,
+                    "pExpiryDate": exp_str,
+                    "expiry": exp_str,
+                    "strike": float(strike_price),
+                    "option_type": ot,
+                })
+            res = {"data": data}
+            self._update_token_map(res)
+            return res
             
         strikes = []
         if symbol == "NIFTY":
@@ -269,7 +387,9 @@ class KotakService:
                     "call_oi": 1000000 + i * 50000 if ot == "CE" else 900000 - i * 50000,
                     "put_oi": 900000 + i * 50000 if ot == "PE" else 1100000 - i * 50000,
                 })
-        return {"data": contracts}
+        res = {"data": contracts}
+        self._update_token_map(res)
+        return res
 
     def get_scrip_master(self, exchange_segment: str = "") -> dict:
         logger.info(f"Fetching scrip master: {exchange_segment or 'ALL'}")
@@ -385,9 +505,9 @@ class KotakService:
                             option_type="CE" if t["option_type"] == "CALL" else "PE",
                             strike_price=str(int(t["strike"]))
                         )
-                        contracts = search_res.get("data", [])
-                        if contracts:
-                            token = contracts[0].get("pInstToken", contracts[0].get("instrumentToken"))
+                        contracts = search_res.get("data", search_res.get("scrip", [])) if isinstance(search_res, dict) else search_res
+                        if isinstance(contracts, list) and contracts:
+                            token = self._parse_token(contracts[0])
                             quote = self.get_quotes([{"instrument_token": str(token), "exchange_segment": "nse_fo"}])
                             ltp = float(quote.get("data", [{}])[0].get("ltp", ltp))
                     except Exception:
@@ -599,43 +719,108 @@ class KotakService:
             if spot_price <= 0:
                 spot_price = 24350.0 if symbol == "NIFTY" else 52400.0
 
-            results = self.search_scrip(
-                exchange_segment="nse_fo",
-                symbol=symbol,
-                expiry=expiry,
-                option_type="",
-                strike_price="",
-            )
-            contracts = results.get("data", results.get("scrip", [])) if isinstance(results, dict) else results
-            if not isinstance(contracts, list) or not contracts:
-                return {"data": [], "spot_price": spot_price}
-
-            valid_contracts = []
-            for c in contracts:
+            # Calculate nearest strikes
+            step = 50 if symbol == "NIFTY" else 100
+            atm = round(spot_price / step) * step
+            
+            # Select 10 strikes around ATM
+            selected_strikes = [atm + (i * step) for i in range(-5, 5)]
+            
+            # Retrieve contracts for each strike in parallel using ThreadPoolExecutor
+            def fetch_strike_contracts(s):
                 try:
-                    strike_val = float(c.get("strike", c.get("pStrikePrice", 0)))
-                    opt_type = c.get("option_type", c.get("pOptionType", ""))
+                    res = self.search_scrip(
+                        exchange_segment="nse_fo",
+                        symbol=symbol,
+                        expiry=expiry,
+                        option_type="",
+                        strike_price=str(s),
+                    )
+                    return res.get("data", res.get("scrip", [])) if isinstance(res, dict) else res
+                except Exception as ex:
+                    logger.error(f"Error fetching strike {s}: {ex}")
+                    return []
+                    
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                results_lists = list(executor.map(fetch_strike_contracts, selected_strikes))
+                
+            all_contracts = []
+            for r_list in results_lists:
+                if isinstance(r_list, list):
+                    all_contracts.extend(r_list)
+                    
+            # Parse & filter valid contracts
+            valid_contracts = []
+            for c in all_contracts:
+                if not isinstance(c, dict):
+                    continue
+                try:
+                    strike_val = self._parse_strike(c)
+                    opt_type = self._parse_option_type(c)
                     if strike_val > 0 and opt_type in ("CE", "PE"):
                         valid_contracts.append(c)
                 except (ValueError, TypeError):
                     continue
-
+                    
             if not valid_contracts:
                 return {"data": [], "spot_price": spot_price}
-
-            strikes = list(set(float(c.get("strike", c.get("pStrikePrice", 0))) for c in valid_contracts))
-            strikes.sort(key=lambda x: abs(x - spot_price))
-            selected_strikes = sorted(strikes[:10])
-
-            chain_contracts = [c for c in valid_contracts if float(c.get("strike", c.get("pStrikePrice", 0))) in selected_strikes]
-
+                
+            # Expiry filtering
+            if expiry:
+                # If a specific expiry is requested, parse target date
+                target_date = self._parse_expiry_to_date(expiry)
+                filtered_contracts = []
+                for c in valid_contracts:
+                    c_date = self._parse_expiry_to_date(self._parse_expiry(c))
+                    if c_date and target_date and c_date.date() == target_date.date():
+                        filtered_contracts.append(c)
+            else:
+                # If no expiry requested, find the closest future/today expiry
+                today = datetime.today().date()
+                future_dates = []
+                for c in valid_contracts:
+                    c_date = self._parse_expiry_to_date(self._parse_expiry(c))
+                    if c_date and c_date.date() >= today:
+                        future_dates.append(c_date.date())
+                
+                if future_dates:
+                    closest_expiry = min(future_dates)
+                    filtered_contracts = []
+                    for c in valid_contracts:
+                        c_date = self._parse_expiry_to_date(self._parse_expiry(c))
+                        if c_date and c_date.date() == closest_expiry:
+                            filtered_contracts.append(c)
+                else:
+                    # If all dates are past or none parsed, just sort and use the first available
+                    all_dates = []
+                    for c in valid_contracts:
+                        c_date = self._parse_expiry_to_date(self._parse_expiry(c))
+                        if c_date:
+                            all_dates.append(c_date.date())
+                    if all_dates:
+                        closest_expiry = min(all_dates)
+                        filtered_contracts = []
+                        for c in valid_contracts:
+                            c_date = self._parse_expiry_to_date(self._parse_expiry(c))
+                            if c_date and c_date.date() == closest_expiry:
+                                filtered_contracts.append(c)
+                    else:
+                        filtered_contracts = valid_contracts
+                        
+            if not filtered_contracts:
+                return {"data": [], "spot_price": spot_price}
+                
+            # Filter to selected 10 strikes to be safe
+            chain_contracts = [c for c in filtered_contracts if self._parse_strike(c) in selected_strikes]
+            
+            # Fetch quotes for selected contracts
             tokens = []
             for c in chain_contracts:
-                token = c.get("instrumentToken", c.get("pInstToken", ""))
+                token = self._parse_token(c)
                 seg = c.get("exchangeSegment", c.get("pExchSeg", "nse_fo"))
                 if token:
                     tokens.append({"instrument_token": str(token), "exchange_segment": seg})
-
+                    
             quotes_data = {}
             if tokens:
                 try:
@@ -651,20 +836,20 @@ class KotakService:
                     logger.warning(f"Failed to fetch quotes for option chain: {qe}")
 
             strike_map = {s: {"strike": s, "CE": None, "PE": None} for s in selected_strikes}
-
+            
             for c in chain_contracts:
-                strike = float(c.get("strike", c.get("pStrikePrice", 0)))
-                opt_type = c.get("option_type", c.get("pOptionType", ""))
-                token = c.get("instrumentToken", c.get("pInstToken", ""))
+                strike = self._parse_strike(c)
+                opt_type = self._parse_option_type(c)
+                token = self._parse_token(c)
                 
                 quote = quotes_data.get(str(token), {})
                 default_premium = 120.0 if symbol == "NIFTY" else 280.0
                 ltp_val = float(quote.get("ltp", quote.get("last_price", default_premium)))
                 
                 details = {
-                    "symbol": c.get("tradingSymbol", c.get("pTrdSym", "")),
+                    "symbol": self._parse_trading_symbol(c),
                     "token": token,
-                    "expiry": c.get("expiry", c.get("pExpiryDate", "")),
+                    "expiry": self._parse_expiry(c),
                     "ltp": ltp_val,
                     "change": float(quote.get("change", 0.0)),
                     "volume": int(quote.get("volume", quote.get("total_quantity_traded", 0))),
@@ -675,7 +860,7 @@ class KotakService:
                     strike_map[strike]["CE"] = details
                 elif opt_type == "PE":
                     strike_map[strike]["PE"] = details
-
+                    
             chain_list = [strike_map[s] for s in selected_strikes]
             return {"data": chain_list, "spot_price": spot_price, "symbol": symbol}
         except Exception as e:
@@ -700,12 +885,31 @@ class KotakService:
             if not isinstance(contracts, list) or not contracts:
                 return {}
 
-            contract = contracts[0]
-            trading_symbol = contract.get("pTrdSym", contract.get("tradingSymbol", ""))
-            token = contract.get("pInstToken", contract.get("instrumentToken", ""))
+            # Filter and sort by expiry date ascending
+            valid_contracts = []
+            today = datetime.today().date()
+            for c in contracts:
+                exp_date = self._parse_expiry_to_date(self._parse_expiry(c))
+                if exp_date:
+                    valid_contracts.append((exp_date.date(), c))
+            
+            if valid_contracts:
+                # Keep only today or future contracts if possible, otherwise use all
+                future_contracts = [item for item in valid_contracts if item[0] >= today]
+                if future_contracts:
+                    future_contracts.sort(key=lambda x: x[0])
+                    contract = future_contracts[0][1]
+                else:
+                    valid_contracts.sort(key=lambda x: x[0])
+                    contract = valid_contracts[0][1]
+            else:
+                contract = contracts[0]
+
+            trading_symbol = self._parse_trading_symbol(contract)
+            token = self._parse_token(contract)
+            expiry = self._parse_expiry(contract)
 
             ltp = 0.0
-            expiry = contract.get("pExpiryDate", contract.get("expiry", ""))
             if token:
                 quote_resp = self.get_quotes([{"instrument_token": str(token), "exchange_segment": "nse_fo"}])
                 quote_data = self._extract_first_quote(quote_resp)
