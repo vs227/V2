@@ -1,0 +1,20 @@
+2026-06-27 23:26:01 | kotak | INFO | Kotak Neo client SDK initialized (Hybrid Paper/Live)
+2026-06-27 23:26:01 | kotak | INFO | Fetching option chain for NIFTY
+2026-06-27 23:26:01 | kotak | INFO | Fetching quotes: [{'instrument_token': '26000', 'exchange_segment': 'nse_cm'}], type=ltp
+2026-06-27 23:26:01 | kotak | INFO | Searching scrip: NIFTY on nse_fo (Paper=True)
+2026-06-27 23:26:01 | kotak | INFO | Searching scrip: NIFTY on nse_fo (Paper=True)
+2026-06-27 23:26:01 | kotak | INFO | Searching scrip: NIFTY on nse_fo (Paper=True)
+2026-06-27 23:26:01 | kotak | INFO | Searching scrip: NIFTY on nse_fo (Paper=True)
+2026-06-27 23:26:01 | kotak | INFO | Searching scrip: NIFTY on nse_fo (Paper=True)
+2026-06-27 23:26:01 | kotak | INFO | Searching scrip: NIFTY on nse_fo (Paper=True)
+2026-06-27 23:26:01 | kotak | INFO | Searching scrip: NIFTY on nse_fo (Paper=True)
+2026-06-27 23:26:01 | kotak | INFO | Searching scrip: NIFTY on nse_fo (Paper=True)
+2026-06-27 23:26:01 | kotak | INFO | Searching scrip: NIFTY on nse_fo (Paper=True)
+2026-06-27 23:26:01 | kotak | INFO | Searching scrip: NIFTY on nse_fo (Paper=True)
+2026-06-27 23:26:01 | kotak | INFO | Fetching quotes: [{'instrument_token': 'NIFTY_24100_CE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24100_PE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24150_CE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24150_PE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24200_CE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24200_PE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24250_CE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24250_PE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24300_CE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24300_PE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24350_CE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24350_PE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24400_CE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24400_PE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24450_CE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24450_PE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24500_CE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24500_PE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24550_CE', 'exchange_segment': 'nse_fo'}, {'instrument_token': 'NIFTY_24550_PE', 'exchange_segment': 'nse_fo'}], type=ohlc
+2026-06-27 23:27:49 | app | INFO | Starting AI Options Trader
+2026-06-27 23:27:49 | database | INFO | Database ready
+2026-06-27 23:27:49 | kotak | INFO | Kotak Neo client SDK initialized (Hybrid Paper/Live)
+2026-06-27 23:27:49 | autotrade | WARNING | GROQ_API_KEY not configured or placeholder. Using simulated/rule-based scans.
+2026-06-27 23:27:49 | autotrade | INFO | AutoTrade Scheduler started.
+2026-06-27 23:27:49 | app | INFO | Database and services ready
