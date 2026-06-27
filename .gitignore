@@ -10,6 +10,8 @@ backend/logs/
 # Frontend
 frontend/.env
 frontend/.env.local
+frontend/.env.production
+frontend/.env.development
 frontend/node_modules/
 frontend/dist/
 frontend/dist-ssr/
